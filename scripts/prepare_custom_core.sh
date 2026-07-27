@@ -43,6 +43,8 @@ fi
 chmod u+w \
   "$sing_module_dir/common/auth" \
   "$sing_module_dir/common/auth/auth.go" \
+  "$sing_module_dir/protocol/http" \
   "$sing_module_dir/protocol/http/handshake.go" \
+  "$sing_module_dir/protocol/socks" \
   "$sing_module_dir/protocol/socks/handshake.go"
 apply_patch_once "$sing_module_dir" "$sing_patch"
