@@ -81,10 +81,20 @@ jobs:
       - name: Build APK
         run: make android-apk-release
 
+      - name: Collect APK signing tool
+        run: |
+          signing_tool="$(find "$ANDROID_SDK_ROOT/build-tools" -path "*/lib/apksigner.jar" -print | sort -V | tail -1)"
+          test -n "$signing_tool"
+          mkdir -p build/signing-tools
+          cp "$signing_tool" build/signing-tools/apksigner.jar
+          java -jar build/signing-tools/apksigner.jar version
+
       - name: Upload APK
         uses: actions/upload-artifact@v6
         with:
           name: hiddify-s-android-apk
-          path: build/app/outputs/flutter-apk/*.apk
+          path: |
+            build/app/outputs/flutter-apk/*.apk
+            build/signing-tools/apksigner.jar
           if-no-files-found: error
           retention-days: 7
