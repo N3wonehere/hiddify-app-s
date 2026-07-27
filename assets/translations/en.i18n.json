@@ -1,6 +1,6 @@
 ﻿{
   "common": {
-    "appTitle": "Hiddify",
+    "appTitle": "Hiddify S",
     "start": "Start",
     "version": "Version",
     "ok": "OK",
@@ -140,7 +140,8 @@
       "share": {
         "urlToClipboard": "URL to clipboard",
         "showUrlQr": "Show URL QR",
-        "jsonToClipboard": "JSON to clipboard"
+        "jsonToClipboard": "JSON to clipboard",
+        "showJsonQr": "Show JSON QR"
       },
       "msg": {
         "save": {
@@ -441,6 +442,16 @@
         "lanSharing": "VPN sharing",
         "lanSharingPasswordNotSet": "Password not set",
         "lanSharingPassword": "VPN sharing password",
+        "lanSharingUsername": "VPN sharing username",
+        "lanSharingPasswordConfirm": "Confirm password",
+        "lanSharingCredentialsSetTitle": "Set LAN credentials",
+        "lanSharingOneTimeWarning": "This can be done only once. The app stores only a salted hash and cannot show or change these credentials later. Save them now. To replace them, uninstall the app or clear its storage.",
+        "lanSharingCredentialsLocked": "Credentials configured and locked",
+        "lanSharingSaveNow": "Save this QR now. The credentials cannot be displayed again.",
+        "lanSharingUsernameTooShort": "Use at least 4 characters",
+        "lanSharingPasswordTooShort": "Use at least 16 characters",
+        "lanSharingCredentialInvalid": "Credential is too long or contains an unsupported character",
+        "lanSharingPasswordMismatch": "Passwords do not match",
         "copyLink": "Copy link",
         "qrCode": "QR Code",
         "lanIPError": "Failed to get local IP address"

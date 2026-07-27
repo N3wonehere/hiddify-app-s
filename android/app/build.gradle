@@ -71,7 +71,7 @@ android {
     }
 
     defaultConfig {
-        applicationId "app.hiddify.com"
+        applicationId "com.n3wonehere.hiddifys"
         minSdkVersion flutter.minSdkVersion
         targetSdkVersion 36
         versionCode flutterVersionCode.toInteger()
@@ -106,6 +106,8 @@ android {
             if (hasKeyStore) {
                 signingConfig signingConfigs.release
             } else {
+                // CI pull-request builds are re-signed with the private release key
+                // before distribution. Tagged releases use key.properties above.
                 signingConfig signingConfigs.debug
             }
             ndk {

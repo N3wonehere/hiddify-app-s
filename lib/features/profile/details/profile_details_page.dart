@@ -10,9 +10,11 @@ import 'package:hiddify/core/localization/translations.dart';
 import 'package:hiddify/core/model/constants.dart';
 import 'package:hiddify/core/model/failures.dart';
 import 'package:hiddify/core/notification/in_app_notification_controller.dart';
+import 'package:hiddify/core/router/dialog/dialog_notifier.dart';
 import 'package:hiddify/features/profile/details/json_editor.dart';
 import 'package:hiddify/features/profile/details/profile_details_notifier.dart';
 import 'package:hiddify/features/profile/model/profile_entity.dart';
+import 'package:hiddify/features/profile/model/profile_qr_codec.dart';
 import 'package:hiddify/utils/utils.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
@@ -252,6 +254,29 @@ class ProfileDetailsPage extends HookConsumerWidget with PresLogger {
                     child: isJson(data.configContent)
                         ? JsonEditor(
                             expandedObjects: const ["outbounds", "endpoints"],
+                            actions: [
+                              InkWell(
+                                onTap: () async {
+                                  final qrData = ProfileQrCodec.encode(data.configContent);
+                                  if (qrData == null) {
+                                    ref
+                                        .read(inAppNotificationControllerProvider)
+                                        .showInfoToast(
+                                          t.common.msg.export.clipboard.contentTooLarge,
+                                          duration: const Duration(seconds: 5),
+                                        );
+                                    return;
+                                  }
+                                  await ref
+                                      .read(dialogNotifierProvider.notifier)
+                                      .showQrCode(qrData, message: data.profile.name);
+                                },
+                                child: Tooltip(
+                                  message: t.pages.settings.inbound.qrCode,
+                                  child: const Icon(Icons.qr_code_rounded, size: 20),
+                                ),
+                              ),
+                            ],
                             onChanged: (value) {
                               if (value == null) return;
                               try {

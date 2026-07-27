@@ -465,8 +465,7 @@ ios-release: #not tested
 	fastforge package --platform ios --targets ipa --build-export-options-plist  ios/exportOptions.plist $(DISTRIBUTOR_ARGS)
 
 android-libs:
-	$(MKDIR) $(ANDROID_OUT) || echo Folder already exists. Skipping...
-	curl -L $(CORE_URL)/$(CORE_NAME)-android.tar.gz | tar xz -C $(ANDROID_OUT)/
+	bash scripts/build_custom_android_core.sh
 
 android-apk-libs: android-libs
 android-aab-libs: android-libs
@@ -539,4 +538,3 @@ ios-temp-prepare:
 	flutter build ios-framework
 	cd ios
 	pod install
-	

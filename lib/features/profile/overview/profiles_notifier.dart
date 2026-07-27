@@ -5,10 +5,12 @@ import 'package:fpdart/fpdart.dart';
 import 'package:hiddify/core/haptic/haptic_service.dart';
 import 'package:hiddify/core/localization/translations.dart';
 import 'package:hiddify/core/notification/in_app_notification_controller.dart';
+import 'package:hiddify/core/router/dialog/dialog_notifier.dart';
 import 'package:hiddify/features/connection/notifier/connection_notifier.dart';
 import 'package:hiddify/features/profile/data/profile_data_providers.dart';
 import 'package:hiddify/features/profile/data/profile_repository.dart';
 import 'package:hiddify/features/profile/model/profile_entity.dart';
+import 'package:hiddify/features/profile/model/profile_qr_codec.dart';
 import 'package:hiddify/features/profile/model/profile_sort_enum.dart';
 import 'package:hiddify/features/profile/notifier/active_profile_notifier.dart';
 import 'package:hiddify/features/settings/data/config_option_repository.dart';
@@ -91,6 +93,32 @@ class ProfilesNotifier extends _$ProfilesNotifier with AppLogger {
             await Clipboard.setData(ClipboardData(text: configJson));
             final t = ref.read(translationsProvider).requireValue;
             ref.read(inAppNotificationControllerProvider).showSuccessToast(t.common.msg.export.clipboard.success);
+          },
+        )
+        .run();
+  }
+
+  Future<void> exportConfigToQr(ProfileEntity profile) async {
+    await _profilesRepo
+        .generateConfig(profile.id)
+        .match(
+          (err) {
+            loggy.warning('error generating config', err);
+            throw err;
+          },
+          (configJson) async {
+            final t = ref.read(translationsProvider).requireValue;
+            final qrData = ProfileQrCodec.encode(configJson);
+            if (qrData == null) {
+              ref
+                  .read(inAppNotificationControllerProvider)
+                  .showInfoToast(
+                    t.common.msg.export.clipboard.contentTooLarge,
+                    duration: const Duration(seconds: 5),
+                  );
+              return;
+            }
+            await ref.read(dialogNotifierProvider.notifier).showQrCode(qrData, message: profile.name);
           },
         )
         .run();

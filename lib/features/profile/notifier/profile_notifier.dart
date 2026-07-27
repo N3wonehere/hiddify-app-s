@@ -15,6 +15,7 @@ import 'package:hiddify/features/profile/data/profile_data_providers.dart';
 import 'package:hiddify/features/profile/data/profile_repository.dart';
 import 'package:hiddify/features/profile/model/profile_entity.dart';
 import 'package:hiddify/features/profile/model/profile_failure.dart';
+import 'package:hiddify/features/profile/model/profile_qr_codec.dart';
 import 'package:hiddify/features/profile/notifier/active_profile_notifier.dart';
 import 'package:hiddify/features/settings/data/config_option_repository.dart';
 import 'package:hiddify/utils/riverpod_utils.dart';
@@ -64,10 +65,11 @@ class AddProfileNotifier extends _$AddProfileNotifier with AppLogger {
     if (state.isLoading) return;
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
+      final input = ProfileQrCodec.decode(rawInput) ?? rawInput;
       // final activeProfile = await ref.read(activeProfileProvider.future);
       // final markAsActive = activeProfile == null || ref.read(Preferences.markNewProfileActive);
       final TaskEither<ProfileFailure, Unit> task;
-      if (LinkParser.parse(rawInput) case (final rs)?) {
+      if (LinkParser.parse(input) case (final rs)?) {
         loggy.debug("adding profile, url: [${rs.url}]");
         task = _profilesRepo.upsertRemote(
           rs.url,
@@ -76,7 +78,7 @@ class AddProfileNotifier extends _$AddProfileNotifier with AppLogger {
         );
       } else {
         loggy.debug("adding profile, content");
-        task = _profilesRepo.addLocal(safeDecodeBase64(rawInput));
+        task = _profilesRepo.addLocal(safeDecodeBase64(input));
       }
       return await task
           .match(

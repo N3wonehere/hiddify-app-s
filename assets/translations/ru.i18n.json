@@ -1,6 +1,6 @@
 {
   "common": {
-    "appTitle": "Hiddify",
+    "appTitle": "Hiddify S",
     "start": "Начать",
     "version": "Версия",
     "ok": "OK",
@@ -144,7 +144,8 @@
       "share": {
         "urlToClipboard": "URL в буфер обмена",
         "showUrlQr": "Показать QR-код URL",
-        "jsonToClipboard": "JSON в буфер обмена"
+        "jsonToClipboard": "JSON в буфер обмена",
+        "showJsonQr": "Показать QR-код JSON"
       },
       "msg": {
         "save": {
@@ -445,6 +446,16 @@
         "lanSharing": "Общий доступ к VPN",
         "lanSharingPasswordNotSet": "Пароль не установлен",
         "lanSharingPassword": "Пароль общего доступа VPN",
+        "lanSharingUsername": "Логин общего доступа VPN",
+        "lanSharingPasswordConfirm": "Повторите пароль",
+        "lanSharingCredentialsSetTitle": "Задать доступ к LAN",
+        "lanSharingOneTimeWarning": "Это можно сделать только один раз. Приложение сохранит только хеш с солью и больше не сможет показать или изменить эти данные. Сохраните их сейчас. Для замены потребуется удалить приложение или очистить его хранилище.",
+        "lanSharingCredentialsLocked": "Логин и пароль заданы и заблокированы",
+        "lanSharingSaveNow": "Сохраните этот QR сейчас. Данные доступа больше не будут показаны.",
+        "lanSharingUsernameTooShort": "Минимум 4 символа",
+        "lanSharingPasswordTooShort": "Минимум 16 символов",
+        "lanSharingCredentialInvalid": "Слишком длинное значение или неподдерживаемый символ",
+        "lanSharingPasswordMismatch": "Пароли не совпадают",
         "copyLink": "Копировать ссылку",
         "qrCode": "QR-код",
         "lanIPError": "Не удалось получить локальный IP-адрес"

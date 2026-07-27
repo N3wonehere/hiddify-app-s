@@ -1,0 +1,90 @@
+name: Hiddify S Android
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/hiddify-s-android.yml"
+      - ".gitmodules"
+      - "Makefile"
+      - "android/**"
+      - "assets/translations/**"
+      - "hiddify-core"
+      - "lib/**"
+      - "patches/**"
+      - "pubspec.lock"
+      - "pubspec.yaml"
+      - "scripts/**"
+      - "test/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hiddify-s-android-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CHANNEL: dev
+      IS_GITHUB_ACTIONS: "1"
+      NDK_VERSION: r28c
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2.21.0
+        with:
+          flutter-version: "3.38.5"
+          channel: stable
+          cache: true
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: "17"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: hiddify-core/go.mod
+          check-latest: false
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r28c
+          local-cache: true
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: |
+          make android-apk-install-deps
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+
+      - name: Prepare
+        run: make android-apk-prepare
+
+      - name: Test
+        run: flutter test
+
+      - name: Build APK
+        run: make android-apk-release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: hiddify-s-android-apk
+          path: build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: error
+          retention-days: 7

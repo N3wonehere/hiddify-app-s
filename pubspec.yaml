@@ -17,6 +17,7 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   intl: ^0.20.2
+  crypto: ^3.0.6
 
   # lucy_editor: ^1.0.5
   # re_highlight: ^0.0.3
