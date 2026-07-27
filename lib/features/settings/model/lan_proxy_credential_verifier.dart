@@ -78,7 +78,10 @@ abstract final class LanProxyCredentialVerifier {
     required String host,
     required int port,
   }) {
-    return Uri(scheme: 'socks', userInfo: '$username:$password', host: host, port: port).toString();
+    final encodedUsername = Uri.encodeComponent(username);
+    final encodedPassword = Uri.encodeComponent(password).replaceAll('%3A', ':');
+    final proxyOrigin = Uri(scheme: 'socks', host: host, port: port).toString();
+    return proxyOrigin.replaceFirst('socks://', 'socks://$encodedUsername:$encodedPassword@');
   }
 }
 
