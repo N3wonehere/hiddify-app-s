@@ -58,16 +58,15 @@ jobs:
           go-version-file: hiddify-core/go.mod
           check-latest: false
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Setup Android NDK
         id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r29
-          local-cache: true
           link-to-sdk: true
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
 
       - name: Install dependencies
         run: |
