@@ -258,6 +258,8 @@ linux-flutter-sync:
 windows-install-deps:
 	dart pub global activate fastforge
 # 	choco install innosetup -y
+
+ANDROID_TARGET_PLATFORMS ?= android-arm,android-arm64,android-x64
 	
 gen_translations: #generating missing translations using google translate
 	cd .github && bash sync_translate.sh
@@ -271,7 +273,7 @@ android-apk-release:
 	  --targets apk \
 	  --skip-clean \
 	  --build-target=$(TARGET) \
-	  --build-target-platform=android-arm,android-arm64,android-x64 \
+	  --build-target-platform=$(ANDROID_TARGET_PLATFORMS) \
 	  --build-dart-define=sentry_dsn=$(SENTRY_DSN)
 	ls -R build/app/outputs
 
