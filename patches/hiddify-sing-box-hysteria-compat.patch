@@ -1,0 +1,89 @@
+diff --git a/protocol/hysteria/inbound.go b/protocol/hysteria/inbound.go
+index 5afc440d..2578fe3c 100644
+--- a/protocol/hysteria/inbound.go
++++ b/protocol/hysteria/inbound.go
+@@ -77,15 +77,9 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
+ 		ReceiveBPS:    receiveBps,
+ 		XPlusPassword: options.Obfs,
+ 		TLSConfig:     tlsConfig,
++		QUICOptions:   buildInboundQUICOptions(options),
+ 		UDPTimeout:    udpTimeout,
+ 		Handler:       inbound,
+-
+-		// Legacy options
+-
+-		ConnReceiveWindow:   options.ReceiveWindowConn,
+-		StreamReceiveWindow: options.ReceiveWindowClient,
+-		MaxIncomingStreams:  int64(options.MaxConnClient),
+-		DisableMTUDiscovery: options.DisableMTUDiscovery,
+ 	})
+ 	if err != nil {
+ 		return nil, err
+diff --git a/protocol/hysteria/outbound.go b/protocol/hysteria/outbound.go
+index bcadd878..50426337 100644
+--- a/protocol/hysteria/outbound.go
++++ b/protocol/hysteria/outbound.go
+@@ -70,21 +70,19 @@ func NewOutbound(ctx context.Context, router adapter.Router, logger log.ContextL
+ 		receiveBps = uint64(options.DownMbps) * hysteria.MbpsToBps
+ 	}
+ 	client, err := hysteria.NewClient(hysteria.ClientOptions{
+-		Context:             ctx,
+-		Dialer:              outboundDialer,
+-		Logger:              logger,
+-		ServerAddress:       options.ServerOptions.Build(),
+-		ServerPorts:         options.ServerPorts,
+-		HopInterval:         time.Duration(options.HopInterval),
+-		SendBPS:             sendBps,
+-		ReceiveBPS:          receiveBps,
+-		XPlusPassword:       options.Obfs,
+-		Password:            password,
+-		TLSConfig:           tlsConfig,
+-		UDPDisabled:         !common.Contains(networkList, N.NetworkUDP),
+-		ConnReceiveWindow:   options.ReceiveWindowConn,
+-		StreamReceiveWindow: options.ReceiveWindow,
+-		DisableMTUDiscovery: options.DisableMTUDiscovery,
++		Context:       ctx,
++		Dialer:        outboundDialer,
++		Logger:        logger,
++		ServerAddress: options.ServerOptions.Build(),
++		ServerPorts:   options.ServerPorts,
++		HopInterval:   time.Duration(options.HopInterval),
++		SendBPS:       sendBps,
++		ReceiveBPS:    receiveBps,
++		XPlusPassword: options.Obfs,
++		Password:      password,
++		TLSConfig:     tlsConfig,
++		QUICOptions:   buildOutboundQUICOptions(options),
++		UDPDisabled:   !common.Contains(networkList, N.NetworkUDP),
+ 	})
+ 	if err != nil {
+ 		return nil, err
+diff --git a/protocol/hysteria/quic.go b/protocol/hysteria/quic.go
+new file mode 100644
+index 00000000..5e68ea7e
+--- /dev/null
++++ b/protocol/hysteria/quic.go
+@@ -0,0 +1,23 @@
++package hysteria
++
++import (
++	"github.com/sagernet/sing-box/option"
++	qtls "github.com/sagernet/sing-quic"
++)
++
++func buildInboundQUICOptions(options option.HysteriaInboundOptions) qtls.QUICOptions {
++	return qtls.QUICOptions{
++		ConnectionReceiveWindow: options.ReceiveWindowConn,
++		StreamReceiveWindow:     options.ReceiveWindowClient,
++		MaxConcurrentStreams:    options.MaxConnClient,
++		DisablePathMTUDiscovery: options.DisableMTUDiscovery,
++	}
++}
++
++func buildOutboundQUICOptions(options option.HysteriaOutboundOptions) qtls.QUICOptions {
++	return qtls.QUICOptions{
++		ConnectionReceiveWindow: options.ReceiveWindowConn,
++		StreamReceiveWindow:     options.ReceiveWindow,
++		DisablePathMTUDiscovery: options.DisableMTUDiscovery,
++	}
++}
