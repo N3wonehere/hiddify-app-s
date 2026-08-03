@@ -8,6 +8,7 @@ core_patch="$repository_dir/patches/hiddify-core-lan-auth.patch"
 sing_patch="$repository_dir/patches/sing-lan-auth.patch"
 sing_box_patch="$repository_dir/patches/hiddify-sing-box-compat.patch"
 sing_box_naive_patch="$repository_dir/patches/hiddify-sing-box-naive-compat.patch"
+sing_box_hysteria_patch="$repository_dir/patches/hiddify-sing-box-hysteria-compat.patch"
 
 apply_patch_once() {
   local target_dir="$1"
@@ -28,6 +29,7 @@ fi
 apply_patch_once "$core_dir" "$core_patch"
 apply_patch_once "$core_dir/hiddify-sing-box" "$sing_box_patch"
 apply_patch_once "$core_dir/hiddify-sing-box" "$sing_box_naive_patch"
+apply_patch_once "$core_dir/hiddify-sing-box" "$sing_box_hysteria_patch"
 
 sing_version="$(sed -n 's/^[[:space:]]*github.com\/sagernet\/sing[[:space:]]\+\([^[:space:]]\+\)$/\1/p' "$core_dir/go.mod")"
 if [[ -z "$sing_version" ]]; then
