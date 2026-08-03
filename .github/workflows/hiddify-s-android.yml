@@ -31,7 +31,7 @@ jobs:
     env:
       CHANNEL: dev
       IS_GITHUB_ACTIONS: "1"
-      NDK_VERSION: r28c
+      NDK_VERSION: r29
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -61,7 +61,7 @@ jobs:
       - name: Setup Android NDK
         uses: nttld/setup-ndk@v1
         with:
-          ndk-version: r28c
+          ndk-version: r29
           local-cache: true
 
       - name: Setup Android SDK
