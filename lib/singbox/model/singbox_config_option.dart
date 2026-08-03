@@ -47,6 +47,7 @@ class SingboxConfigOption with _$SingboxConfigOption {
     required bool setSystemProxy,
     // required bool bypassLan,
     required bool allowConnectionFromLan,
+    // Legacy JSON field name; contains a salted credentials verifier, never a plaintext password.
     required String lanSharingPassword,
     required bool enableFakeDns,
     // required bool enableDnsRouting,

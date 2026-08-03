@@ -282,6 +282,10 @@ class ProfileActionsMenu extends HookConsumerWidget {
             title: t.pages.profiles.share.jsonToClipboard,
             onTap: () async => await ref.read(profilesNotifierProvider.notifier).exportConfigToClipboard(profile),
           ),
+          AdaptiveMenuItem(
+            title: t.pages.profiles.share.showJsonQr,
+            onTap: () async => await ref.read(profilesNotifierProvider.notifier).exportConfigToQr(profile),
+          ),
         ],
       ),
       AdaptiveMenuItem(

@@ -1,0 +1,388 @@
+diff --git a/common/tls/std_client.go b/common/tls/std_client.go
+index 1611c83e..61e56316 100644
+--- a/common/tls/std_client.go
++++ b/common/tls/std_client.go
+@@ -27,6 +27,7 @@ type STDClientConfig struct {
+ 	fragment              bool
+ 	fragmentFallbackDelay time.Duration
+ 	recordFragment        bool
++	handshakeTimeout      time.Duration
+ }
+ 
+ func (c *STDClientConfig) ServerName() string {
+@@ -45,6 +46,14 @@ func (c *STDClientConfig) SetNextProtos(nextProto []string) {
+ 	c.config.NextProtos = nextProto
+ }
+ 
++func (c *STDClientConfig) HandshakeTimeout() time.Duration {
++	return c.handshakeTimeout
++}
++
++func (c *STDClientConfig) SetHandshakeTimeout(timeout time.Duration) {
++	c.handshakeTimeout = timeout
++}
++
+ func (c *STDClientConfig) STDConfig() (*STDConfig, error) {
+ 	return c.config, nil
+ }
+@@ -63,6 +72,7 @@ func (c *STDClientConfig) Clone() Config {
+ 		fragment:              c.fragment,
+ 		fragmentFallbackDelay: c.fragmentFallbackDelay,
+ 		recordFragment:        c.recordFragment,
++		handshakeTimeout:      c.handshakeTimeout,
+ 	}
+ }
+ 
+@@ -198,7 +208,14 @@ func NewSTDClient(ctx context.Context, logger logger.ContextLogger, serverAddres
+ 	} else if len(clientCertificate) > 0 || len(clientKey) > 0 {
+ 		return nil, E.New("client certificate and client key must be provided together")
+ 	}
+-	var config Config = &STDClientConfig{ctx, &tlsConfig, options.Fragment, time.Duration(options.FragmentFallbackDelay), options.RecordFragment}
++	var config Config = &STDClientConfig{
++		ctx:                   ctx,
++		config:                &tlsConfig,
++		fragment:              options.Fragment,
++		fragmentFallbackDelay: time.Duration(options.FragmentFallbackDelay),
++		recordFragment:        options.RecordFragment,
++		handshakeTimeout:      C.TCPTimeout,
++	}
+ 	if options.ECH != nil && options.ECH.Enabled {
+ 		var err error
+ 		config, err = parseECHClientConfig(ctx, config.(ECHCapableConfig), options)
+diff --git a/common/tls/std_server.go b/common/tls/std_server.go
+index 760c4b3a..ab958446 100644
+--- a/common/tls/std_server.go
++++ b/common/tls/std_server.go
+@@ -25,6 +25,7 @@ var errInsecureUnused = E.New("tls: insecure unused")
+ type STDServerConfig struct {
+ 	access                sync.RWMutex
+ 	config                *tls.Config
++	handshakeTimeout      time.Duration
+ 	logger                log.Logger
+ 	acmeService           adapter.SimpleLifecycle
+ 	certificate           []byte
+@@ -72,6 +73,18 @@ func (c *STDServerConfig) SetNextProtos(nextProto []string) {
+ 	c.config = config
+ }
+ 
++func (c *STDServerConfig) HandshakeTimeout() time.Duration {
++	c.access.RLock()
++	defer c.access.RUnlock()
++	return c.handshakeTimeout
++}
++
++func (c *STDServerConfig) SetHandshakeTimeout(timeout time.Duration) {
++	c.access.Lock()
++	defer c.access.Unlock()
++	c.handshakeTimeout = timeout
++}
++
+ func (c *STDServerConfig) STDConfig() (*STDConfig, error) {
+ 	return c.config, nil
+ }
+@@ -86,7 +99,8 @@ func (c *STDServerConfig) Server(conn net.Conn) (Conn, error) {
+ 
+ func (c *STDServerConfig) Clone() Config {
+ 	return &STDServerConfig{
+-		config: c.config.Clone(),
++		config:           c.config.Clone(),
++		handshakeTimeout: c.handshakeTimeout,
+ 	}
+ }
+ 
+@@ -359,6 +373,7 @@ func NewSTDServer(ctx context.Context, logger log.ContextLogger, options option.
+ 	}
+ 	serverConfig := &STDServerConfig{
+ 		config:                tlsConfig,
++		handshakeTimeout:      C.TCPTimeout,
+ 		logger:                logger,
+ 		acmeService:           acmeService,
+ 		certificate:           certificate,
+diff --git a/protocol/mixed/inbound.go b/protocol/mixed/inbound.go
+index 5591c315..64c3edb5 100644
+--- a/protocol/mixed/inbound.go
++++ b/protocol/mixed/inbound.go
+@@ -4,6 +4,7 @@ import (
+ 	std_bufio "bufio"
+ 	"context"
+ 	"net"
++	"time"
+ 
+ 	"github.com/sagernet/sing-box/adapter"
+ 	"github.com/sagernet/sing-box/adapter/inbound"
+@@ -36,14 +37,22 @@ type Inbound struct {
+ 	listener      *listener.Listener
+ 	authenticator *auth.Authenticator
+ 	tlsConfig     tls.ServerConfig
++	udpTimeout    time.Duration
+ }
+ 
+ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.HTTPMixedInboundOptions) (adapter.Inbound, error) {
++	var udpTimeout time.Duration
++	if options.UDPTimeout != 0 {
++		udpTimeout = time.Duration(options.UDPTimeout)
++	} else {
++		udpTimeout = C.UDPTimeout
++	}
+ 	inbound := &Inbound{
+ 		Adapter:       inbound.NewAdapter(C.TypeMixed, tag),
+ 		router:        uot.NewRouter(router, logger),
+ 		logger:        logger,
+ 		authenticator: auth.NewAuthenticator(options.Users),
++		udpTimeout:    udpTimeout,
+ 	}
+ 	if options.TLS != nil {
+ 		tlsConfig, err := tls.NewServerWithOptions(tls.ServerOptions{
+@@ -116,7 +125,7 @@ func (h *Inbound) newConnection(ctx context.Context, conn net.Conn, metadata ada
+ 	}
+ 	switch headerBytes[0] {
+ 	case socks4.Version, socks5.Version:
+-		return socks.HandleConnectionEx(ctx, conn, reader, h.authenticator, adapter.NewUpstreamHandlerEx(metadata, h.newUserConnection, h.streamUserPacketConnection), h.listener, metadata.Source, onClose)
++		return socks.HandleConnectionEx(ctx, conn, reader, h.authenticator, adapter.NewUpstreamHandlerEx(metadata, h.newUserConnection, h.streamUserPacketConnection), h.listener, h.udpTimeout, metadata.Source, onClose)
+ 	default:
+ 		return http.HandleConnectionEx(ctx, conn, reader, h.authenticator, adapter.NewUpstreamHandlerEx(metadata, h.newUserConnection, h.streamUserPacketConnection), metadata.Source, onClose)
+ 	}
+diff --git a/protocol/socks/inbound.go b/protocol/socks/inbound.go
+index 6b828152..68e0ef58 100644
+--- a/protocol/socks/inbound.go
++++ b/protocol/socks/inbound.go
+@@ -4,6 +4,7 @@ import (
+ 	std_bufio "bufio"
+ 	"context"
+ 	"net"
++	"time"
+ 
+ 	"github.com/sagernet/sing-box/adapter"
+ 	"github.com/sagernet/sing-box/adapter/inbound"
+@@ -31,14 +32,22 @@ type Inbound struct {
+ 	logger        logger.ContextLogger
+ 	listener      *listener.Listener
+ 	authenticator *auth.Authenticator
++	udpTimeout    time.Duration
+ }
+ 
+ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.SocksInboundOptions) (adapter.Inbound, error) {
++	var udpTimeout time.Duration
++	if options.UDPTimeout != 0 {
++		udpTimeout = time.Duration(options.UDPTimeout)
++	} else {
++		udpTimeout = C.UDPTimeout
++	}
+ 	inbound := &Inbound{
+ 		Adapter:       inbound.NewAdapter(C.TypeSOCKS, tag),
+ 		router:        uot.NewRouter(router, logger),
+ 		logger:        logger,
+ 		authenticator: auth.NewAuthenticator(options.Users),
++		udpTimeout:    udpTimeout,
+ 	}
+ 	inbound.listener = listener.New(listener.Options{
+ 		Context:           ctx,
+@@ -62,7 +71,7 @@ func (h *Inbound) Close() error {
+ }
+ 
+ func (h *Inbound) NewConnectionEx(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {
+-	err := socks.HandleConnectionEx(ctx, conn, std_bufio.NewReader(conn), h.authenticator, adapter.NewUpstreamHandlerEx(metadata, h.newUserConnection, h.streamUserPacketConnection), h.listener, metadata.Source, onClose)
++	err := socks.HandleConnectionEx(ctx, conn, std_bufio.NewReader(conn), h.authenticator, adapter.NewUpstreamHandlerEx(metadata, h.newUserConnection, h.streamUserPacketConnection), h.listener, h.udpTimeout, metadata.Source, onClose)
+ 	N.CloseOnHandshakeFailure(conn, onClose, err)
+ 	if err != nil {
+ 		if E.IsClosedOrCanceled(err) {
+diff --git a/protocol/tor/proxy.go b/protocol/tor/proxy.go
+index 6b7db7c3..378e74fc 100644
+--- a/protocol/tor/proxy.go
++++ b/protocol/tor/proxy.go
+@@ -99,7 +99,7 @@ func (l *ProxyListener) acceptLoop() {
+ }
+ 
+ func (l *ProxyListener) accept(ctx context.Context, conn *net.TCPConn) error {
+-	return socks.HandleConnectionEx(ctx, conn, std_bufio.NewReader(conn), l.authenticator, l, nil, M.SocksaddrFromNet(conn.RemoteAddr()), nil)
++	return socks.HandleConnectionEx(ctx, conn, std_bufio.NewReader(conn), l.authenticator, l, nil, 0, M.SocksaddrFromNet(conn.RemoteAddr()), nil)
+ }
+ 
+ func (l *ProxyListener) NewConnectionEx(ctx context.Context, conn net.Conn, source M.Socksaddr, destination M.Socksaddr, onClose N.CloseHandlerFunc) {
+diff --git a/option/awg.go b/option/awg.go
+index f367fd48..cf1960c6 100644
+--- a/option/awg.go
++++ b/option/awg.go
+@@ -28,10 +28,40 @@ type AwgEndpointOptions struct {
+ 	I3               string                           `json:"i3,omitempty"`
+ 	I4               string                           `json:"i4,omitempty"`
+ 	I5               string                           `json:"i5,omitempty"`
++	Awg              AwgOptions                       `json:"awg,omitempty"`
+ 	Peers            []AwgPeerOptions                 `json:"peers,omitempty"`
+ 	DialerOptions
+ }
+ 
++type AwgOptions struct {
++	Jc   int    `json:"jc,omitempty"`
++	Jmin int    `json:"jmin,omitempty"`
++	Jmax int    `json:"jmax,omitempty"`
++	S1   int    `json:"s1,omitempty"`
++	S2   int    `json:"s2,omitempty"`
++	S3   int    `json:"s3,omitempty"`
++	S4   int    `json:"s4,omitempty"`
++	H1   string `json:"h1,omitempty"`
++	H2   string `json:"h2,omitempty"`
++	H3   string `json:"h3,omitempty"`
++	H4   string `json:"h4,omitempty"`
++	I1   string `json:"i1,omitempty"`
++	I2   string `json:"i2,omitempty"`
++	I3   string `json:"i3,omitempty"`
++	I4   string `json:"i4,omitempty"`
++	I5   string `json:"i5,omitempty"`
++}
++
++func (o *AwgOptions) IsAvailble() bool {
++	if o == nil {
++		return false
++	}
++	return o.Jc != 0 || o.Jmin != 0 || o.Jmax != 0 ||
++		o.S1 != 0 || o.S2 != 0 || o.S3 != 0 || o.S4 != 0 ||
++		o.H1 != "" || o.H2 != "" || o.H3 != "" || o.H4 != "" ||
++		o.I1 != "" || o.I2 != "" || o.I3 != "" || o.I4 != "" || o.I5 != ""
++}
++
+ type AwgPeerOptions struct {
+ 	Address                     string                           `json:"address,omitempty"`
+ 	Port                        uint16                           `json:"port,omitempty"`
+diff --git a/option/wireguard.go b/option/wireguard.go
+index 92c95568..1276e972 100644
+--- a/option/wireguard.go
++++ b/option/wireguard.go
+@@ -23,6 +23,7 @@ type WireGuardEndpointOptions struct {
+ 	DialerOptions
+ 
+ 	Noise hiddify.NoiseOptions `json:"noise,omitempty"`
++	AWG   *AwgOptions          `json:"awg,omitempty"`
+ }
+ 
+ type WireGuardPeer struct {
+@@ -49,10 +50,14 @@ type WireGuardWARPEndpointOptions struct {
+ 	UniqueIdentifier string               `json:"unique_identifier,omitempty"` //h
+ 	ServerOptions                         //H
+ 	Noise            hiddify.NoiseOptions `json:"noise,omitempty"` //H
++	AWG              *AwgOptions          `json:"awg,omitempty"`
+ 	*C.WARPConfig                         //H
+ 	MTU              uint32               `json:"mtu,omitempty"`
+ }
+ 
++// WARPEndpointOptions is kept for compatibility with ray2sing.
++type WARPEndpointOptions = WireGuardWARPEndpointOptions
++
+ type WARPProfile struct {
+ 	ID         string `json:"id,omitempty"`
+ 	PrivateKey string `json:"private_key,omitempty"`
+diff --git a/common/tls/reality_client.go b/common/tls/reality_client.go
+index 9362d2f8..8dfc0387 100644
+--- a/common/tls/reality_client.go
++++ b/common/tls/reality_client.go
+@@ -108,6 +108,14 @@ func (e *RealityClientConfig) SetNextProtos(nextProto []string) {
+ 	e.uClient.SetNextProtos(nextProto)
+ }
+ 
++func (e *RealityClientConfig) HandshakeTimeout() time.Duration {
++	return e.uClient.HandshakeTimeout()
++}
++
++func (e *RealityClientConfig) SetHandshakeTimeout(timeout time.Duration) {
++	e.uClient.SetHandshakeTimeout(timeout)
++}
++
+ func (e *RealityClientConfig) STDConfig() (*STDConfig, error) {
+ 	return nil, E.New("unsupported usage for reality")
+ }
+diff --git a/common/tls/reality_server.go b/common/tls/reality_server.go
+index 5fc68475..f0c5d882 100644
+--- a/common/tls/reality_server.go
++++ b/common/tls/reality_server.go
+@@ -26,7 +26,8 @@ import (
+ var _ ServerConfigCompat = (*RealityServerConfig)(nil)
+ 
+ type RealityServerConfig struct {
+-	config *utls.RealityConfig
++	config           *utls.RealityConfig
++	handshakeTimeout time.Duration
+ }
+ 
+ func NewRealityServer(ctx context.Context, logger log.ContextLogger, options option.InboundTLSOptions) (ServerConfig, error) {
+@@ -126,7 +127,10 @@ func NewRealityServer(ctx context.Context, logger log.ContextLogger, options opt
+ 	if options.ECH != nil && options.ECH.Enabled {
+ 		return nil, E.New("Reality is conflict with ECH")
+ 	}
+-	var config ServerConfig = &RealityServerConfig{&tlsConfig}
++	var config ServerConfig = &RealityServerConfig{
++		config:           &tlsConfig,
++		handshakeTimeout: C.TCPTimeout,
++	}
+ 	if options.KernelTx || options.KernelRx {
+ 		if !C.IsLinux {
+ 			return nil, E.New("kTLS is only supported on Linux")
+@@ -157,6 +161,14 @@ func (c *RealityServerConfig) SetNextProtos(nextProto []string) {
+ 	c.config.NextProtos = nextProto
+ }
+ 
++func (c *RealityServerConfig) HandshakeTimeout() time.Duration {
++	return c.handshakeTimeout
++}
++
++func (c *RealityServerConfig) SetHandshakeTimeout(timeout time.Duration) {
++	c.handshakeTimeout = timeout
++}
++
+ func (c *RealityServerConfig) STDConfig() (*tls.Config, error) {
+ 	return nil, E.New("unsupported usage for reality")
+ }
+@@ -187,7 +199,8 @@ func (c *RealityServerConfig) ServerHandshake(ctx context.Context, conn net.Conn
+ 
+ func (c *RealityServerConfig) Clone() Config {
+ 	return &RealityServerConfig{
+-		config: c.config.Clone(),
++		config:           c.config.Clone(),
++		handshakeTimeout: c.handshakeTimeout,
+ 	}
+ }
+ 
+diff --git a/common/tls/utls_client.go b/common/tls/utls_client.go
+index 941192ba..82227941 100644
+--- a/common/tls/utls_client.go
++++ b/common/tls/utls_client.go
+@@ -32,6 +32,7 @@ type UTLSClientConfig struct {
+ 	fragment              bool
+ 	fragmentFallbackDelay time.Duration
+ 	recordFragment        bool
++	handshakeTimeout      time.Duration
+ }
+ 
+ func (c *UTLSClientConfig) ServerName() string {
+@@ -53,6 +54,14 @@ func (c *UTLSClientConfig) SetNextProtos(nextProto []string) {
+ 	c.config.NextProtos = nextProto
+ }
+ 
++func (c *UTLSClientConfig) HandshakeTimeout() time.Duration {
++	return c.handshakeTimeout
++}
++
++func (c *UTLSClientConfig) SetHandshakeTimeout(timeout time.Duration) {
++	c.handshakeTimeout = timeout
++}
++
+ func (c *UTLSClientConfig) STDConfig() (*STDConfig, error) {
+ 	return nil, E.New("unsupported usage for uTLS")
+ }
+@@ -70,7 +79,7 @@ func (c *UTLSClientConfig) SetSessionIDGenerator(generator func(clientHello []by
+ 
+ func (c *UTLSClientConfig) Clone() Config {
+ 	return &UTLSClientConfig{
+-		c.ctx, c.config.Clone(), c.id, c.fragment, c.fragmentFallbackDelay, c.recordFragment,
++		c.ctx, c.config.Clone(), c.id, c.fragment, c.fragmentFallbackDelay, c.recordFragment, c.handshakeTimeout,
+ 	}
+ }
+ 
+@@ -255,7 +264,7 @@ func NewUTLSClient(ctx context.Context, logger logger.ContextLogger, serverAddre
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	var config Config = &UTLSClientConfig{ctx, &tlsConfig, id, options.Fragment, time.Duration(options.FragmentFallbackDelay), options.RecordFragment}
++	var config Config = &UTLSClientConfig{ctx, &tlsConfig, id, options.Fragment, time.Duration(options.FragmentFallbackDelay), options.RecordFragment, C.TCPTimeout}
+ 	if options.ECH != nil && options.ECH.Enabled {
+ 		if options.Reality != nil && options.Reality.Enabled {
+ 			return nil, E.New("Reality is conflict with ECH")

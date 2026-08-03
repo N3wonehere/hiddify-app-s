@@ -1,0 +1,281 @@
+diff --git a/common/auth/auth.go b/common/auth/auth.go
+--- a/common/auth/auth.go
++++ b/common/auth/auth.go
+@@ -1,14 +1,43 @@
+ package auth
+ 
+-import "github.com/sagernet/sing/common"
++import (
++	"crypto/hmac"
++	"crypto/sha256"
++	"crypto/subtle"
++	"encoding/base64"
++	"encoding/binary"
++	"strconv"
++	"strings"
++	"sync"
++
++	"github.com/sagernet/sing/common"
++)
++
++const (
++	CredentialVerifierPrefix = "$hiddify-pbkdf2-sha256$"
++	minVerifierIterations     = 100000
++	maxVerifierIterations     = 1000000
++	credentialSaltLength      = 16
++	credentialDigestLength    = 32
++	maxCredentialLength       = 255
++)
+ 
+ type User struct {
+ 	Username string
+ 	Password string
+ }
+ 
++type credentialVerifier struct {
++	iterations int
++	salt       []byte
++	digest     []byte
++}
++
+ type Authenticator struct {
+-	userMap map[string][]string
++	userMap                 map[string][]string
++	credentialVerifiers     []credentialVerifier
++	successfulCredentialMap sync.Map
++	verificationSlot        chan struct{}
+ }
+ 
+ func NewAuthenticator(users []User) *Authenticator {
+@@ -19,12 +48,110 @@ func NewAuthenticator(users []User) *Authenticator {
+ 		userMap: make(map[string][]string),
+ 	}
+ 	for _, user := range users {
+-		au.userMap[user.Username] = append(au.userMap[user.Username], user.Password)
++		if verifier, loaded := parseCredentialVerifier(user.Username); loaded && user.Password == "" {
++			au.credentialVerifiers = append(au.credentialVerifiers, verifier)
++		} else {
++			au.userMap[user.Username] = append(au.userMap[user.Username], user.Password)
++		}
+ 	}
++	if len(au.credentialVerifiers) > 0 {
++		au.verificationSlot = make(chan struct{}, 1)
++	}
+ 	return au
+ }
+ 
++func IsCredentialVerifier(value string) bool {
++	_, loaded := parseCredentialVerifier(value)
++	return loaded
++}
++
+ func (au *Authenticator) Verify(username string, password string) bool {
+-	passwordList, ok := au.userMap[username]
+-	return ok && common.Contains(passwordList, password)
++	if passwordList, loaded := au.userMap[username]; loaded && common.Contains(passwordList, password) {
++		return true
++	}
++	if len(au.credentialVerifiers) == 0 ||
++		len(username) == 0 ||
++		len(username) > maxCredentialLength ||
++		len(password) == 0 ||
++		len(password) > maxCredentialLength {
++		return false
++	}
++
++	credential := buildCredential(username, password)
++	cacheKey := sha256.Sum256(credential)
++	if _, loaded := au.successfulCredentialMap.Load(cacheKey); loaded {
++		return true
++	}
++	select {
++	case au.verificationSlot <- struct{}{}:
++		defer func() { <-au.verificationSlot }()
++	default:
++		return false
++	}
++	for _, verifier := range au.credentialVerifiers {
++		digest := pbkdf2SHA256(credential, verifier.salt, verifier.iterations)
++		if subtle.ConstantTimeCompare(digest, verifier.digest) == 1 {
++			au.successfulCredentialMap.Store(cacheKey, struct{}{})
++			return true
++		}
++	}
++	return false
++}
++
++func (au *Authenticator) UsernameForContext(username string) string {
++	if _, plainUser := au.userMap[username]; plainUser || len(au.credentialVerifiers) == 0 {
++		return username
++	}
++	return "authenticated"
++}
++
++func parseCredentialVerifier(value string) (credentialVerifier, bool) {
++	if !strings.HasPrefix(value, CredentialVerifierPrefix) {
++		return credentialVerifier{}, false
++	}
++	parts := strings.Split(strings.TrimPrefix(value, CredentialVerifierPrefix), "$")
++	if len(parts) != 3 {
++		return credentialVerifier{}, false
++	}
++	iterations, err := strconv.Atoi(parts[0])
++	if err != nil || iterations < minVerifierIterations || iterations > maxVerifierIterations {
++		return credentialVerifier{}, false
++	}
++	salt, err := base64.RawURLEncoding.DecodeString(parts[1])
++	if err != nil || len(salt) != credentialSaltLength {
++		return credentialVerifier{}, false
++	}
++	digest, err := base64.RawURLEncoding.DecodeString(parts[2])
++	if err != nil || len(digest) != credentialDigestLength {
++		return credentialVerifier{}, false
++	}
++	return credentialVerifier{iterations: iterations, salt: salt, digest: digest}, true
++}
++
++func buildCredential(username string, password string) []byte {
++	credential := make([]byte, 4+len(username)+len(password))
++	binary.BigEndian.PutUint32(credential, uint32(len(username)))
++	copy(credential[4:], username)
++	copy(credential[4+len(username):], password)
++	return credential
++}
++
++func pbkdf2SHA256(secret []byte, salt []byte, iterations int) []byte {
++	initial := make([]byte, len(salt)+4)
++	copy(initial, salt)
++	binary.BigEndian.PutUint32(initial[len(salt):], 1)
++
++	prf := hmac.New(sha256.New, secret)
++	_, _ = prf.Write(initial)
++	current := prf.Sum(nil)
++	result := append([]byte(nil), current...)
++	for iteration := 1; iteration < iterations; iteration++ {
++		prf.Reset()
++		_, _ = prf.Write(current)
++		current = prf.Sum(nil)
++		for index := range result {
++			result[index] ^= current[index]
++		}
++	}
++	return result
+ }
+diff --git a/common/auth/auth_test.go b/common/auth/auth_test.go
+new file mode 100644
+--- /dev/null
++++ b/common/auth/auth_test.go
+@@ -0,0 +1,46 @@
++package auth
++
++import "testing"
++
++const testVerifier = "$hiddify-pbkdf2-sha256$100000$AAECAwQFBgcICQoLDA0ODw$Z88nxzJPgIWUeaXuZ--Hvm7oJltx0z9QUHrieYhh1qM"
++
++func TestCredentialVerifier(t *testing.T) {
++	authenticator := NewAuthenticator([]User{{Username: testVerifier}})
++	if !authenticator.Verify("alice", "correct horse battery staple") {
++		t.Fatal("expected credentials to match")
++	}
++	if authenticator.Verify("alice", "wrong password") {
++		t.Fatal("wrong password matched")
++	}
++	if authenticator.Verify("mallory", "correct horse battery staple") {
++		t.Fatal("wrong username matched")
++	}
++	if username := authenticator.UsernameForContext("alice"); username != "authenticated" {
++		t.Fatalf("credential username was not redacted: %q", username)
++	}
++}
++
++func TestPlaintextAuthenticatorCompatibility(t *testing.T) {
++	authenticator := NewAuthenticator([]User{{Username: "alice", Password: "secret"}})
++	if !authenticator.Verify("alice", "secret") {
++		t.Fatal("plaintext authentication stopped working")
++	}
++	if username := authenticator.UsernameForContext("alice"); username != "alice" {
++		t.Fatalf("plaintext username changed: %q", username)
++	}
++}
++
++func TestCredentialVerifierValidation(t *testing.T) {
++	if !IsCredentialVerifier(testVerifier) {
++		t.Fatal("valid verifier was rejected")
++	}
++	for _, value := range []string{
++		"plaintext",
++		"$hiddify-pbkdf2-sha256$1$AA$AA",
++		"$hiddify-pbkdf2-sha256$100000$not-base64$not-base64",
++	} {
++		if IsCredentialVerifier(value) {
++			t.Fatalf("invalid verifier was accepted: %q", value)
++		}
++	}
++}
+diff --git a/protocol/socks/handshake.go b/protocol/socks/handshake.go
+--- a/protocol/socks/handshake.go
++++ b/protocol/socks/handshake.go
+@@ -153,9 +153,13 @@ func HandleConnectionEx(
+ 				if err != nil {
+ 					return err
+ 				}
+-				return E.New("socks4: authentication failed, username=", request.Username)
++				return E.New("socks4: authentication failed")
+ 			}
+-			handler.NewConnectionEx(auth.ContextWithUser(ctx, request.Username), NewLazyConn(conn, version), source, request.Destination, onClose)
++			username := request.Username
++			if authenticator != nil {
++				username = authenticator.UsernameForContext(username)
++			}
++			handler.NewConnectionEx(auth.ContextWithUser(ctx, username), NewLazyConn(conn, version), source, request.Destination, onClose)
+ 			return nil
+ 		/*case CommandTorResolve, CommandTorResolvePTR:
+ 		if resolver == nil {
+@@ -203,10 +207,10 @@ func HandleConnectionEx(
+ 			if err != nil {
+ 				return err
+ 			}
+-			ctx = auth.ContextWithUser(ctx, usernamePasswordAuthRequest.Username)
+ 			response := socks5.UsernamePasswordAuthResponse{}
+ 			if authenticator.Verify(usernamePasswordAuthRequest.Username, usernamePasswordAuthRequest.Password) {
+ 				response.Status = socks5.UsernamePasswordStatusSuccess
++				ctx = auth.ContextWithUser(ctx, authenticator.UsernameForContext(usernamePasswordAuthRequest.Username))
+ 			} else {
+ 				response.Status = socks5.UsernamePasswordStatusFailure
+ 			}
+@@ -215,7 +219,7 @@ func HandleConnectionEx(
+ 				return err
+ 			}
+ 			if response.Status != socks5.UsernamePasswordStatusSuccess {
+-				return E.New("socks5: authentication failed, username=", usernamePasswordAuthRequest.Username, ", password=", usernamePasswordAuthRequest.Password)
++				return E.New("socks5: authentication failed")
+ 			}
+ 		}
+ 		var request socks5.Request
+diff --git a/protocol/http/handshake.go b/protocol/http/handshake.go
+--- a/protocol/http/handshake.go
++++ b/protocol/http/handshake.go
+@@ -49,7 +49,7 @@ func HandleConnectionEx(
+ 					password = userPswdArr[1]
+ 					authOk = authenticator.Verify(username, password)
+ 					if authOk {
+-						ctx = auth.ContextWithUser(ctx, userPswdArr[0])
++						ctx = auth.ContextWithUser(ctx, authenticator.UsernameForContext(userPswdArr[0]))
+ 					}
+ 				}
+ 			}
+@@ -62,13 +62,7 @@ func HandleConnectionEx(
+ 				if err != nil {
+ 					return err
+ 				}
+-				if username != "" {
+-					return E.New("http: authentication failed, username=", username, ", password=", password)
+-				} else if authorization != "" {
+-					return E.New("http: authentication failed, Proxy-Authorization=", authorization)
+-				} else {
+-					return E.New("http: authentication failed, no Proxy-Authorization header")
+-				}
++				return E.New("http: authentication failed")
+ 			}
+ 		}
+ 

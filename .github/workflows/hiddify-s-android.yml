@@ -1,0 +1,113 @@
+name: Hiddify S Android
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/hiddify-s-android.yml"
+      - ".gitmodules"
+      - "Makefile"
+      - "android/**"
+      - "assets/translations/**"
+      - "hiddify-core"
+      - "lib/**"
+      - "patches/**"
+      - "pubspec.lock"
+      - "pubspec.yaml"
+      - "scripts/**"
+      - "test/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hiddify-s-android-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CHANNEL: dev
+      IS_GITHUB_ACTIONS: "1"
+      NDK_VERSION: r29
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2.21.0
+        with:
+          flutter-version: "3.38.5"
+          channel: stable
+          cache: true
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: "17"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: hiddify-core/go.mod
+          check-latest: false
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r29
+          link-to-sdk: true
+
+      - name: Install dependencies
+        run: |
+          make android-apk-install-deps
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+
+      - name: Add linker swap
+        run: |
+          sudo fallocate -l 6G /mnt/hiddify-s.swap
+          sudo chmod 600 /mnt/hiddify-s.swap
+          sudo mkswap /mnt/hiddify-s.swap
+          sudo swapon /mnt/hiddify-s.swap
+
+      - name: Prepare
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
+          GOFLAGS: -p=1
+          GOMAXPROCS: "2"
+        run: make android-apk-prepare
+
+      - name: Test
+        run: flutter test
+
+      - name: Build APK
+        run: make android-apk-release ANDROID_TARGET_PLATFORMS=android-arm64
+
+      - name: Collect APK signing tool
+        run: |
+          signing_tool="$(find "$ANDROID_SDK_ROOT/build-tools" -path "*/lib/apksigner.jar" -print | sort -V | tail -1)"
+          test -n "$signing_tool"
+          mkdir -p build/signing-tools
+          cp "$signing_tool" build/signing-tools/apksigner.jar
+          java -jar build/signing-tools/apksigner.jar version
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: hiddify-s-android-apk
+          path: |
+            build/app/outputs/flutter-apk/*.apk
+            build/signing-tools/apksigner.jar
+          if-no-files-found: error
+          retention-days: 7

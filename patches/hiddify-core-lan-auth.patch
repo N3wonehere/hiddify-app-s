@@ -1,0 +1,244 @@
+diff --git a/v2/config/builder.go b/v2/config/builder.go
+index d37e8b6..f4381cc 100644
+--- a/v2/config/builder.go
++++ b/v2/config/builder.go
+@@ -17,6 +17,7 @@ import (
+ 	C "github.com/sagernet/sing-box/constant"
+ 	sdns "github.com/sagernet/sing-box/dns"
+ 	"github.com/sagernet/sing-box/option"
++	"github.com/sagernet/sing/common/auth"
+ 	"github.com/sagernet/sing/common/json/badoption"
+ 	"github.com/sagernet/wireguard-go/hiddify"
+ )
+@@ -430,6 +431,14 @@ func isIPv6Supported() bool {
+ 	_, err := net.ResolveIPAddr("ip6", "::1")
+ 	return err == nil
+ }
++
++func lanSharingUsers(hopt *HiddifyOptions) []auth.User {
++	if !hopt.AllowConnectionFromLAN || !auth.IsCredentialVerifier(hopt.LANSharingPassword) {
++		return nil
++	}
++	return []auth.User{{Username: hopt.LANSharingPassword}}
++}
++
+ func setInbound(options *option.Options, hopt *HiddifyOptions) {
+ 	// var inboundDomainStrategy option.DomainStrategy
+ 	// if !opt.ResolveDestination {
+@@ -477,22 +486,23 @@ func setInbound(options *option.Options, hopt *HiddifyOptions) {
+ 
+ 	}
+ 
+-	binds := []string{}
++	localBinds := []string{}
++	if ipv6Enable {
++		localBinds = append(localBinds, "::1")
++	}
++	localBinds = append(localBinds, "127.0.0.1")
+ 
+-	if hopt.AllowConnectionFromLAN {
++	lanUsers := lanSharingUsers(hopt)
++	mixedBinds := localBinds
++	if len(lanUsers) > 0 {
+ 		if ipv6Enable {
+-			binds = append(binds, "::")
++			mixedBinds = []string{"::"}
+ 		} else {
+-			binds = append(binds, "0.0.0.0")
++			mixedBinds = []string{"0.0.0.0"}
+ 		}
+-	} else {
+-		if ipv6Enable {
+-			binds = append(binds, "::1")
+-		}
+-		binds = append(binds, "127.0.0.1")
+ 	}
+ 
+-	for _, bind := range binds {
++	for _, bind := range mixedBinds {
+ 		addr := badoption.Addr(netip.MustParseAddr(bind))
+ 
+ 		options.Inbounds = append(
+@@ -510,10 +520,17 @@ func setInbound(options *option.Options, hopt *HiddifyOptions) {
+ 						// 	DomainStrategy:           inboundDomainStrategy,
+ 						// },
+ 					},
++					Users:          lanUsers,
+ 					SetSystemProxy: hopt.SetSystemProxy,
+ 				},
+ 			},
+ 		)
++	}
++
++	// Direct, redirect, and transparent proxy inbounds have no credential layer.
++	// Keep them loopback-only even while authenticated LAN sharing is enabled.
++	for _, bind := range localBinds {
++		addr := badoption.Addr(netip.MustParseAddr(bind))
+ 		if C.IsLinux && !C.IsAndroid && hopt.TProxyPort > 0 && hutils.IsAdmin() {
+ 			options.Inbounds = append(
+ 				options.Inbounds,
+diff --git a/v2/config/hiddify_option.go b/v2/config/hiddify_option.go
+index c3fa9bf..5dac8e5 100644
+--- a/v2/config/hiddify_option.go
++++ b/v2/config/hiddify_option.go
+@@ -47,16 +47,17 @@ type DNSOptions struct {
+ }
+ 
+ type InboundOptions struct {
+-	EnableTun        bool   `json:"enable-tun,omitempty"`
+-	EnableTunService bool   `json:"enable-tun-service,omitempty"`
+-	SetSystemProxy   bool   `json:"set-system-proxy,omitempty"`
+-	MixedPort        uint16 `json:"mixed-port,omitempty"`
+-	TProxyPort       uint16 `json:"tproxy-port,omitempty"`
+-	RedirectPort     uint16 `json:"redirect-port,omitempty"`
+-	DirectPort       uint16 `json:"direct-port,omitempty"`
+-	MTU              uint32 `json:"mtu,omitempty"`
+-	StrictRoute      bool   `json:"strict-route,omitempty"`
+-	TUNStack         string `json:"tun-implementation,omitempty"`
++	EnableTun          bool   `json:"enable-tun,omitempty"`
++	EnableTunService   bool   `json:"enable-tun-service,omitempty"`
++	SetSystemProxy     bool   `json:"set-system-proxy,omitempty"`
++	MixedPort          uint16 `json:"mixed-port,omitempty"`
++	TProxyPort         uint16 `json:"tproxy-port,omitempty"`
++	RedirectPort       uint16 `json:"redirect-port,omitempty"`
++	DirectPort         uint16 `json:"direct-port,omitempty"`
++	MTU                uint32 `json:"mtu,omitempty"`
++	StrictRoute        bool   `json:"strict-route,omitempty"`
++	TUNStack           string `json:"tun-implementation,omitempty"`
++	LANSharingPassword string `json:"lan-sharing-password,omitempty"`
+ }
+ 
+ type URLTestOptions struct {
+diff --git a/v2/config/lan_sharing_test.go b/v2/config/lan_sharing_test.go
+new file mode 100644
+--- /dev/null
++++ b/v2/config/lan_sharing_test.go
+@@ -0,0 +1,128 @@
++package config
++
++import (
++	"net/netip"
++	"testing"
++
++	C "github.com/sagernet/sing-box/constant"
++	"github.com/sagernet/sing-box/option"
++)
++
++const testCredentialVerifier = "$hiddify-pbkdf2-sha256$100000$AAECAwQFBgcICQoLDA0ODw$Z88nxzJPgIWUeaXuZ--Hvm7oJltx0z9QUHrieYhh1qM"
++
++func TestLANSharingFailsClosedWithoutVerifier(t *testing.T) {
++	hopt := &HiddifyOptions{
++		InboundOptions: InboundOptions{LANSharingPassword: "plaintext"},
++		RouteOptions:   RouteOptions{AllowConnectionFromLAN: true},
++	}
++	if users := lanSharingUsers(hopt); users != nil {
++		t.Fatalf("expected no LAN users for a plaintext credential, got %d", len(users))
++	}
++}
++
++func TestLANSharingUsesCredentialVerifier(t *testing.T) {
++	hopt := &HiddifyOptions{
++		InboundOptions: InboundOptions{LANSharingPassword: testCredentialVerifier},
++		RouteOptions:   RouteOptions{AllowConnectionFromLAN: true},
++	}
++	users := lanSharingUsers(hopt)
++	if len(users) != 1 {
++		t.Fatalf("expected one LAN user, got %d", len(users))
++	}
++	if users[0].Username != testCredentialVerifier || users[0].Password != "" {
++		t.Fatal("LAN credentials were not passed to the verifier-only authenticator")
++	}
++}
++
++func TestLANSharingDoesNotAuthenticateLoopbackMode(t *testing.T) {
++	hopt := &HiddifyOptions{
++		InboundOptions: InboundOptions{LANSharingPassword: testCredentialVerifier},
++		RouteOptions:   RouteOptions{AllowConnectionFromLAN: false},
++	}
++	if users := lanSharingUsers(hopt); users != nil {
++		t.Fatalf("expected no LAN users while LAN sharing is disabled, got %d", len(users))
++	}
++}
++
++func TestLANSharingInboundBindAndAuthentication(t *testing.T) {
++	for _, testCase := range []struct {
++		name         string
++		verifier     string
++		externalBind bool
++		userCount    int
++	}{
++		{
++			name:         "valid verifier binds externally with authentication",
++			verifier:     testCredentialVerifier,
++			externalBind: true,
++			userCount:    1,
++		},
++		{
++			name:         "missing verifier fails closed to loopback",
++			externalBind: false,
++			userCount:    0,
++		},
++		{
++			name:         "plaintext verifier fails closed to loopback",
++			verifier:     "plaintext",
++			externalBind: false,
++			userCount:    0,
++		},
++	} {
++		t.Run(testCase.name, func(t *testing.T) {
++			hopt := &HiddifyOptions{
++				InboundOptions: InboundOptions{
++					MixedPort:          12334,
++					DirectPort:         12337,
++					LANSharingPassword: testCase.verifier,
++				},
++				RouteOptions: RouteOptions{AllowConnectionFromLAN: true},
++			}
++			var options option.Options
++			setInbound(&options, hopt)
++
++			mixedCount := 0
++			directCount := 0
++			for _, inbound := range options.Inbounds {
++				switch inbound.Type {
++				case C.TypeMixed:
++					mixedCount++
++					mixedOptions, loaded := inbound.Options.(*option.HTTPMixedInboundOptions)
++					if !loaded || mixedOptions.Listen == nil {
++						t.Fatal("mixed inbound is missing listen options")
++					}
++					listenAddress := netip.Addr(*mixedOptions.Listen)
++					if testCase.externalBind != listenAddress.IsUnspecified() {
++						t.Fatalf("unexpected mixed listen address: %s", listenAddress)
++					}
++					if !testCase.externalBind && !listenAddress.IsLoopback() {
++						t.Fatalf("insecure non-loopback mixed fallback: %s", listenAddress)
++					}
++					if len(mixedOptions.Users) != testCase.userCount {
++						t.Fatalf(
++							"expected %d authentication users, got %d",
++							testCase.userCount,
++							len(mixedOptions.Users),
++						)
++					}
++				case C.TypeDirect:
++					directCount++
++					directOptions, loaded := inbound.Options.(*option.DirectInboundOptions)
++					if !loaded || directOptions.Listen == nil {
++						t.Fatal("direct inbound is missing listen options")
++					}
++					listenAddress := netip.Addr(*directOptions.Listen)
++					if !listenAddress.IsLoopback() {
++						t.Fatalf("unauthenticated direct inbound escaped loopback: %s", listenAddress)
++					}
++				}
++			}
++			if mixedCount == 0 {
++				t.Fatal("no mixed inbound was generated")
++			}
++			if directCount == 0 {
++				t.Fatal("no direct inbound was generated")
++			}
++		})
++	}
++}

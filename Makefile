@@ -258,6 +258,8 @@ linux-flutter-sync:
 windows-install-deps:
 	dart pub global activate fastforge
 # 	choco install innosetup -y
+
+ANDROID_TARGET_PLATFORMS ?= android-arm,android-arm64,android-x64
 	
 gen_translations: #generating missing translations using google translate
 	cd .github && bash sync_translate.sh
@@ -271,7 +273,7 @@ android-apk-release:
 	  --targets apk \
 	  --skip-clean \
 	  --build-target=$(TARGET) \
-	  --build-target-platform=android-arm,android-arm64,android-x64 \
+	  --build-target-platform=$(ANDROID_TARGET_PLATFORMS) \
 	  --build-dart-define=sentry_dsn=$(SENTRY_DSN)
 	ls -R build/app/outputs
 
@@ -465,8 +467,7 @@ ios-release: #not tested
 	fastforge package --platform ios --targets ipa --build-export-options-plist  ios/exportOptions.plist $(DISTRIBUTOR_ARGS)
 
 android-libs:
-	$(MKDIR) $(ANDROID_OUT) || echo Folder already exists. Skipping...
-	curl -L $(CORE_URL)/$(CORE_NAME)-android.tar.gz | tar xz -C $(ANDROID_OUT)/
+	bash scripts/build_custom_android_core.sh
 
 android-apk-libs: android-libs
 android-aab-libs: android-libs
@@ -539,4 +540,3 @@ ios-temp-prepare:
 	flutter build ios-framework
 	cd ios
 	pod install
-	

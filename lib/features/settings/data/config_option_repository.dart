@@ -178,7 +178,12 @@ abstract class ConfigOptions {
 
   static final allowConnectionFromLan = PreferencesNotifier.create<bool, bool>("allow-connection-from-lan", false);
 
-  static final lanSharingPassword = PreferencesNotifier.create<String, String>("lan_sharing_password", "");
+  // This value is a salted PBKDF2 verifier. Plaintext LAN credentials are never persisted.
+  // It intentionally is not part of [preferences], so importing or resetting settings cannot replace it.
+  static final lanSharingCredentialsVerifier = PreferencesNotifier.create<String, String>(
+    "lan-sharing-credentials-verifier",
+    "",
+  );
 
   static final enableFakeDns = PreferencesNotifier.create<bool, bool>("enable-fake-dns", false);
 
@@ -379,7 +384,6 @@ abstract class ConfigOptions {
     "clash-api-port": clashApiPort,
     // "bypass-lan": bypassLan,
     "allow-connection-from-lan": allowConnectionFromLan,
-    "lan-sharing-password": lanSharingPassword,
     // "enable-dns-routing": enableDnsRouting,
 
     // mux
@@ -499,7 +503,7 @@ abstract class ConfigOptions {
       setSystemProxy: mode == ServiceMode.systemProxy,
       // bypassLan: ref.watch(bypassLan),
       allowConnectionFromLan: ref.watch(allowConnectionFromLan),
-      lanSharingPassword: ref.watch(lanSharingPassword),
+      lanSharingPassword: ref.watch(lanSharingCredentialsVerifier),
       enableFakeDns: ref.watch(enableFakeDns),
       // enableDnsRouting: ref.watch(enableDnsRouting),
       independentDnsCache: ref.watch(independentDnsCache),
@@ -563,6 +567,9 @@ class ConfigOptionRepository with ExceptionHandler, InfraLogger {
       Either.tryCatch(() => _getConfigOptions(), ConfigOptionFailure.unexpected).flatMap(
         (options) => Either.tryCatch(() {
           final json = ProfileParser.applyProfileOverride(options.toJson(), profileOverride);
+          // Profiles are untrusted input. LAN exposure and its verifier stay exclusively app-controlled.
+          json["allow-connection-from-lan"] = options.allowConnectionFromLan;
+          json["lan-sharing-password"] = options.lanSharingPassword;
           return SingboxConfigOption.fromJson(json);
         }, ConfigOptionFailure.unexpected),
       );

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 class QrCodeDialog extends StatelessWidget {
-  const QrCodeDialog(this.data, {super.key, this.message, this.width = 268, this.backgroundColor = Colors.white});
+  const QrCodeDialog(this.data, {super.key, this.message, this.width = 420, this.backgroundColor = Colors.white});
 
   final String data;
   final String? message;
@@ -12,6 +12,7 @@ class QrCodeDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final effectiveWidth = width.clamp(0, MediaQuery.sizeOf(context).shortestSide - 32).toDouble();
 
     return Padding(
       padding: const EdgeInsets.all(8.0),
@@ -19,12 +20,16 @@ class QrCodeDialog extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           SizedBox(
-            width: width,
-            child: QrImageView(data: data, backgroundColor: backgroundColor),
+            width: effectiveWidth,
+            child: QrImageView(
+              data: data,
+              backgroundColor: backgroundColor,
+              errorCorrectionLevel: QrErrorCorrectLevel.L,
+            ),
           ),
           if (message != null)
             SizedBox(
-              width: width,
+              width: effectiveWidth,
               child: Material(
                 color: theme.colorScheme.surface,
                 child: Row(

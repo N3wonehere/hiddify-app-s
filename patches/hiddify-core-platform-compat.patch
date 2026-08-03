@@ -1,0 +1,29 @@
+diff --git a/v2/hcore/platform_interface.go b/v2/hcore/platform_interface.go
+index a37c952..54fccda 100644
+--- a/v2/hcore/platform_interface.go
++++ b/v2/hcore/platform_interface.go
+@@ -118,24 +118,3 @@ func (h *MobilePlatformInterface) SendNotification(notification *libbox.Notifica
+ 	}
+ 	return h.platform.SendNotification(notification)
+ }
+-
+-func (h *MobilePlatformInterface) StartNeighborMonitor(listener libbox.NeighborUpdateListener) error {
+-	if h.platform == nil {
+-		return nil
+-	}
+-	return h.platform.StartNeighborMonitor(listener)
+-}
+-
+-func (h *MobilePlatformInterface) CloseNeighborMonitor(listener libbox.NeighborUpdateListener) error {
+-	if h.platform == nil {
+-		return nil
+-	}
+-	return h.platform.CloseNeighborMonitor(listener)
+-}
+-
+-func (h *MobilePlatformInterface) RegisterMyInterface(name string) {
+-	if h.platform == nil {
+-		return
+-	}
+-	h.platform.RegisterMyInterface(name)
+-}
