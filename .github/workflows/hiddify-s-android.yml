@@ -87,7 +87,6 @@ jobs:
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
           GOFLAGS: -p=1
           GOMAXPROCS: "2"
-          GOMEMLIMIT: 5GiB
         run: make android-apk-prepare
 
       - name: Test
