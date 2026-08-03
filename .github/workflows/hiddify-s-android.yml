@@ -74,10 +74,20 @@ jobs:
           make android-apk-install-deps
           echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
 
+      - name: Add linker swap
+        run: |
+          sudo fallocate -l 6G /mnt/hiddify-s.swap
+          sudo chmod 600 /mnt/hiddify-s.swap
+          sudo mkswap /mnt/hiddify-s.swap
+          sudo swapon /mnt/hiddify-s.swap
+
       - name: Prepare
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
+          GOFLAGS: -p=1
+          GOMAXPROCS: "2"
+          GOMEMLIMIT: 5GiB
         run: make android-apk-prepare
 
       - name: Test
