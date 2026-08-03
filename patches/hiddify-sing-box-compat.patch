@@ -271,3 +271,118 @@ index 92c95568..1276e972 100644
  type WARPProfile struct {
  	ID         string `json:"id,omitempty"`
  	PrivateKey string `json:"private_key,omitempty"`
+diff --git a/common/tls/reality_client.go b/common/tls/reality_client.go
+index 9362d2f8..8dfc0387 100644
+--- a/common/tls/reality_client.go
++++ b/common/tls/reality_client.go
+@@ -108,6 +108,14 @@ func (e *RealityClientConfig) SetNextProtos(nextProto []string) {
+ 	e.uClient.SetNextProtos(nextProto)
+ }
+ 
++func (e *RealityClientConfig) HandshakeTimeout() time.Duration {
++	return e.uClient.HandshakeTimeout()
++}
++
++func (e *RealityClientConfig) SetHandshakeTimeout(timeout time.Duration) {
++	e.uClient.SetHandshakeTimeout(timeout)
++}
++
+ func (e *RealityClientConfig) STDConfig() (*STDConfig, error) {
+ 	return nil, E.New("unsupported usage for reality")
+ }
+diff --git a/common/tls/reality_server.go b/common/tls/reality_server.go
+index 5fc68475..f0c5d882 100644
+--- a/common/tls/reality_server.go
++++ b/common/tls/reality_server.go
+@@ -26,7 +26,8 @@ import (
+ var _ ServerConfigCompat = (*RealityServerConfig)(nil)
+ 
+ type RealityServerConfig struct {
+-	config *utls.RealityConfig
++	config           *utls.RealityConfig
++	handshakeTimeout time.Duration
+ }
+ 
+ func NewRealityServer(ctx context.Context, logger log.ContextLogger, options option.InboundTLSOptions) (ServerConfig, error) {
+@@ -126,7 +127,10 @@ func NewRealityServer(ctx context.Context, logger log.ContextLogger, options opt
+ 	if options.ECH != nil && options.ECH.Enabled {
+ 		return nil, E.New("Reality is conflict with ECH")
+ 	}
+-	var config ServerConfig = &RealityServerConfig{&tlsConfig}
++	var config ServerConfig = &RealityServerConfig{
++		config:           &tlsConfig,
++		handshakeTimeout: C.TCPTimeout,
++	}
+ 	if options.KernelTx || options.KernelRx {
+ 		if !C.IsLinux {
+ 			return nil, E.New("kTLS is only supported on Linux")
+@@ -157,6 +161,14 @@ func (c *RealityServerConfig) SetNextProtos(nextProto []string) {
+ 	c.config.NextProtos = nextProto
+ }
+ 
++func (c *RealityServerConfig) HandshakeTimeout() time.Duration {
++	return c.handshakeTimeout
++}
++
++func (c *RealityServerConfig) SetHandshakeTimeout(timeout time.Duration) {
++	c.handshakeTimeout = timeout
++}
++
+ func (c *RealityServerConfig) STDConfig() (*tls.Config, error) {
+ 	return nil, E.New("unsupported usage for reality")
+ }
+@@ -187,7 +199,8 @@ func (c *RealityServerConfig) ServerHandshake(ctx context.Context, conn net.Conn
+ 
+ func (c *RealityServerConfig) Clone() Config {
+ 	return &RealityServerConfig{
+-		config: c.config.Clone(),
++		config:           c.config.Clone(),
++		handshakeTimeout: c.handshakeTimeout,
+ 	}
+ }
+ 
+diff --git a/common/tls/utls_client.go b/common/tls/utls_client.go
+index 941192ba..82227941 100644
+--- a/common/tls/utls_client.go
++++ b/common/tls/utls_client.go
+@@ -32,6 +32,7 @@ type UTLSClientConfig struct {
+ 	fragment              bool
+ 	fragmentFallbackDelay time.Duration
+ 	recordFragment        bool
++	handshakeTimeout      time.Duration
+ }
+ 
+ func (c *UTLSClientConfig) ServerName() string {
+@@ -53,6 +54,14 @@ func (c *UTLSClientConfig) SetNextProtos(nextProto []string) {
+ 	c.config.NextProtos = nextProto
+ }
+ 
++func (c *UTLSClientConfig) HandshakeTimeout() time.Duration {
++	return c.handshakeTimeout
++}
++
++func (c *UTLSClientConfig) SetHandshakeTimeout(timeout time.Duration) {
++	c.handshakeTimeout = timeout
++}
++
+ func (c *UTLSClientConfig) STDConfig() (*STDConfig, error) {
+ 	return nil, E.New("unsupported usage for uTLS")
+ }
+@@ -70,7 +79,7 @@ func (c *UTLSClientConfig) SetSessionIDGenerator(generator func(clientHello []by
+ 
+ func (c *UTLSClientConfig) Clone() Config {
+ 	return &UTLSClientConfig{
+-		c.ctx, c.config.Clone(), c.id, c.fragment, c.fragmentFallbackDelay, c.recordFragment,
++		c.ctx, c.config.Clone(), c.id, c.fragment, c.fragmentFallbackDelay, c.recordFragment, c.handshakeTimeout,
+ 	}
+ }
+ 
+@@ -255,7 +264,7 @@ func NewUTLSClient(ctx context.Context, logger logger.ContextLogger, serverAddre
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	var config Config = &UTLSClientConfig{ctx, &tlsConfig, id, options.Fragment, time.Duration(options.FragmentFallbackDelay), options.RecordFragment}
++	var config Config = &UTLSClientConfig{ctx, &tlsConfig, id, options.Fragment, time.Duration(options.FragmentFallbackDelay), options.RecordFragment, C.TCPTimeout}
+ 	if options.ECH != nil && options.ECH.Enabled {
+ 		if options.Reality != nil && options.Reality.Enabled {
+ 			return nil, E.New("Reality is conflict with ECH")
