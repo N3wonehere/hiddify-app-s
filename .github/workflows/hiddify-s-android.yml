@@ -84,7 +84,7 @@ jobs:
         run: flutter test
 
       - name: Build APK
-        run: make android-apk-release
+        run: make android-apk-release ANDROID_TARGET_PLATFORMS=android-arm64
 
       - name: Collect APK signing tool
         run: |
