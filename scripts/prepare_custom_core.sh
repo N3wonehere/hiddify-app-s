@@ -5,6 +5,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repository_dir="$(cd "$script_dir/.." && pwd)"
 core_dir="$repository_dir/hiddify-core"
 core_patch="$repository_dir/patches/hiddify-core-lan-auth.patch"
+core_platform_patch="$repository_dir/patches/hiddify-core-platform-compat.patch"
 sing_patch="$repository_dir/patches/sing-lan-auth.patch"
 sing_box_patch="$repository_dir/patches/hiddify-sing-box-compat.patch"
 sing_box_naive_patch="$repository_dir/patches/hiddify-sing-box-naive-compat.patch"
@@ -27,6 +28,7 @@ if [[ ! -f "$core_dir/go.mod" ]]; then
 fi
 
 apply_patch_once "$core_dir" "$core_patch"
+apply_patch_once "$core_dir" "$core_platform_patch"
 apply_patch_once "$core_dir/hiddify-sing-box" "$sing_box_patch"
 apply_patch_once "$core_dir/hiddify-sing-box" "$sing_box_naive_patch"
 apply_patch_once "$core_dir/hiddify-sing-box" "$sing_box_hysteria_patch"
